@@ -11,8 +11,9 @@ import 'package:universal_ble/universal_ble.dart';
 Future<void> main() async {
   await AppLocalizations.load(const Locale('en'));
 
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    core.settings.prefs = await SharedPreferences.getInstance();
     core.actionHandler = StubActions();
   });
 

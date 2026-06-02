@@ -1,10 +1,11 @@
 import 'package:bike_control/bluetooth/devices/trainer_connection.dart';
+import 'package:bike_control/bluetooth/devices/zwift/zwift_clickv2.dart';
 import 'package:bike_control/bluetooth/devices/zwift/zwift_ride.dart';
 import 'package:bike_control/bluetooth/messages/notification.dart';
 import 'package:bike_control/gen/l10n.dart';
+import 'package:bike_control/main.dart';
 import 'package:bike_control/utils/actions/base_actions.dart';
 import 'package:bike_control/utils/core.dart';
-import 'package:bike_control/utils/keymap/apps/rouvy.dart';
 import 'package:bike_control/utils/keymap/buttons.dart';
 import 'package:bike_control/utils/keymap/keymap.dart';
 import 'package:bike_control/widgets/apps/zwift_mdns_tile.dart';
@@ -12,10 +13,14 @@ import 'package:dartx/dartx.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/src/widgets/framework.dart';
 import 'package:prop/prop.dart' hide RideButtonMask;
+import 'package:universal_ble/universal_ble.dart';
 
 class FtmsMdnsEmulator extends TrainerConnection {
-  late final ClickEmulator clickEmulator = ClickEmulator();
   var lastMessageId = 0;
+
+  late final ZwiftEmulatorDefinition def = ZwiftEmulatorDefinition(
+    device: BleDevice(deviceId: 'deviceId', name: 'name'),
+  );
 
   FtmsMdnsEmulator()
     : super(
@@ -34,11 +39,11 @@ class FtmsMdnsEmulator extends TrainerConnection {
           InGameAction.rideOnBomb,
         ],
       ) {
-    clickEmulator.isStarted.addListener(() {
-      isStarted.value = clickEmulator.isStarted.value;
+    ftmsEmulator.isStarted.addListener(() {
+      isStarted.value = ftmsEmulator.isStarted.value;
     });
-    clickEmulator.isConnected.addListener(() {
-      isConnected.value = clickEmulator.isConnected.value;
+    ftmsEmulator.isConnected.addListener(() {
+      isConnected.value = ftmsEmulator.isConnected.value;
       if (isConnected.value) {
         core.connection.signalNotification(
           AlertNotification(LogLevel.LOGLEVEL_INFO, AppLocalizations.current.connected),
@@ -52,12 +57,29 @@ class FtmsMdnsEmulator extends TrainerConnection {
   }
 
   Future<void> startServer() async {
-    final isRouvy = core.settings.getTrainerApp() is Rouvy;
-    return clickEmulator.startServer(isRouvy, name: isRouvy ? 'BikeControl' : null);
+    if (!ftmsEmulator.isStarted.value) {
+      await ftmsEmulator.attachDefinition(def).catchError((e, s) {
+        recordError(e, s, context: 'Zwift mDNS Emulator - attachDefinition');
+        core.settings.setZwiftMdnsEmulatorEnabled(false);
+        core.connection.signalNotification(AlertNotification(LogLevel.LOGLEVEL_ERROR, e.toString()));
+      });
+      return ftmsEmulator.startServer(
+        mode: RetrofitMode.wifi,
+        mdnsTxt: {
+          'mac-address': Uint8List.fromList('95E042B7-1337-039E-C35F-C7095776F2D3'.codeUnits),
+          'serial-number': Uint8List.fromList(
+            '95E042B7-1337-039E-C35F-C7095776F2D3'.replaceAll('-', '').substring(0, '244700181'.length).codeUnits,
+          ),
+        },
+      );
+    }
   }
 
   void stop() {
-    clickEmulator.stop();
+    if (ftmsEmulator.composite.children.length == 1) {
+      // only this emulator is attached, safe to stop the server
+      ftmsEmulator.stop();
+    }
   }
 
   @override
@@ -81,7 +103,10 @@ class FtmsMdnsEmulator extends TrainerConnection {
     };
 
     if (button == null) {
-      return NotHandled('Action ${keyPair.inGameAction!.name} not supported by Zwift Emulator');
+      return NotHandled(
+        'Action ${keyPair.inGameAction!.name} not supported by Zwift Emulator',
+        button: keyPair.buttons.firstOrNull,
+      );
     }
 
     if (isKeyDown) {
@@ -91,18 +116,26 @@ class FtmsMdnsEmulator extends TrainerConnection {
 
       final bytes = status.writeToBuffer();
 
-      clickEmulator.writeNotification(bytes);
+      ftmsEmulator.composite.sendCharacteristicNotification('00000002-19CA-4651-86E5-FA29DCDD09D1', [
+        Opcode.CONTROLLER_NOTIFICATION.value,
+        ...bytes,
+      ]);
     }
 
     if (isKeyUp) {
-      clickEmulator.writeNotification(
-        Uint8List.fromList([0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F]),
-      );
+      final bytes = [0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F];
+      ftmsEmulator.composite.sendCharacteristicNotification('00000002-19CA-4651-86E5-FA29DCDD09D1', [
+        Opcode.CONTROLLER_NOTIFICATION.value,
+        ...bytes,
+      ]);
     }
     if (kDebugMode) {
       print('Sent action up $isKeyUp vs down $isKeyDown ${keyPair.inGameAction!.title} to Zwift Emulator');
     }
-    return Success('Sent action ${isKeyDown ? 'down' : ''} ${isKeyUp ? 'up' : ''}: ${keyPair.inGameAction!.title}');
+    return Success(
+      'Sent action ${isKeyDown ? 'down' : ''} ${isKeyUp ? 'up' : ''}: ${keyPair.inGameAction!.title}',
+      button: keyPair.buttons.firstOrNull,
+    );
   }
 
   @override

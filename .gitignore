@@ -78,3 +78,22 @@ screenshots/editor/
 .superpowers/
 android/build/reports/problems/problems-report.html
 assets/generated
+
+# Build artifacts / regenerable (iOS)
+build/
+.dart_tool/
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/ephemeral/
+ios/Flutter/App.framework/
+ios/Flutter/Flutter.framework/
+ios/Runner/GeneratedPluginRegistrant.*
+DerivedData/
+*.xcarchive
+*.ipa
+*.dSYM*
+xcuserdata/
+.gradle/
+node_modules/
